@@ -1,19 +1,12 @@
 from django.shortcuts import render, HttpResponse
 from search.models import *
-from django.contrib.postgres.search import SearchVector, SearchQuery ,SearchRank
+from django.db.models import Q
+from django.contrib.postgres.search import (SearchVector, SearchQuery ,SearchRank ,TrigramSimilarity)
 
 # Create your views here.
 def index(request):
     search=request.GET.get('search')
     if search:
-        # vector=SearchVector('title','description','category')
-        vector=(
-            SearchVector('title',weight='A')+
-            SearchVector('description',weight='B')
-        )
-        query=SearchQuery(search)
-        rank=SearchRank(vector,query)
-
         '''
         __search
         lookup means by which method you want to filter data in queryset
@@ -60,15 +53,47 @@ def index(request):
             SearchVector('description',weight='B')
         )
         '''
-
-        product=Product.objects.annotate(search=SearchVector('title','description','category')).filter(search=search)
-        # product=Product.objects.annotate(rank=rank).order_by('-rank').filter(rank__gte=0.02)
-        # product=Product.objects.annotate(rank=rank).order_by("-rank")
-        # for i in product:
-        #     print(i.rank)
-
+        '''
+        Trigram similarity.
+        When user make spelling mistakes then its usefull.
+        This extension allows you to perform trigram similarity lookups, 
+        which are useful for handling typographical errors and approximate searches.
+        we need to install extension in postgress database CREATE EXTENSION pg_trgm;
+        '''
+       
+       
+        query = SearchQuery(search)
+        vector =  SearchVector(
+            "title",
+            "description",
+            "category",
+            "brand"
+        )
+        rank = SearchRank(vector, query)
+        product = Product.objects.annotate(rank=rank,similarity=TrigramSimilarity('title',search)+
+        TrigramSimilarity('description',search)).filter(Q(similarity__gte=0.05)&Q(rank__gte=0.05))
+        brands=Product.objects.all().distinct('brand').order_by('-brand')
+        category=Product.objects.all().distinct('category').order_by('-category')
+        print(category)
+        
     else:
-         product=Product.objects.all()
+        product=Product.objects.all()
+        brands=Product.objects.all().distinct('brand').order_by('-brand')
+        category=Product.objects.all().distinct('category').order_by('-category')
 
-    context={'results':product,'search':search}
+        print(brands)
+        
+        category=Product.objects.all().distinct('category').order_by('-category')
+
+
+    if request.GET.get('min_price') and request.GET.get('max_price'):
+        minprice=request.GET.get('min_price')
+        maxprice=request.GET.get('max_price')
+        product=Product.objects.filter(price__lte=maxprice,price__gte=minprice)
+
+    if request.GET.get('category'):
+        cat=request.GET.get('category')
+        product=Product.objects.filter(category=cat)
+        
+    context={'results':product,'search':search,'brands':brands,'category':category}
     return render(request,"index.html",context)    
