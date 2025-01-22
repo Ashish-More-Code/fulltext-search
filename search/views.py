@@ -2,6 +2,9 @@ from django.shortcuts import render, HttpResponse
 from search.models import *
 from django.db.models import Q
 from django.contrib.postgres.search import (SearchVector, SearchQuery ,SearchRank ,TrigramSimilarity)
+from django.views.decorators.cache import cache_page
+from django.core.cache import cache
+
 
 # Create your views here.
 def index(request):
@@ -61,7 +64,7 @@ def index(request):
         we need to install extension in postgress database CREATE EXTENSION pg_trgm;
         '''
        
-       
+        
         query = SearchQuery(search)
         vector =  SearchVector(
             "title",
@@ -69,21 +72,35 @@ def index(request):
             "category",
             "brand"
         )
+        brands=[]
+        category=[]
         rank = SearchRank(vector, query)
         product = Product.objects.annotate(rank=rank,similarity=TrigramSimilarity('title',search)+
         TrigramSimilarity('description',search)).filter(Q(similarity__gte=0.05)&Q(rank__gte=0.05))
-        brands=Product.objects.all().distinct('brand').order_by('-brand')
-        category=Product.objects.all().distinct('category').order_by('-category')
-        print(category)
+        if cache.get("brands"):
+            category=cache.get("brands")
+        else:
+            cache.set("brands", Product.objects.all().distinct('brand').order_by('-brand'), 60*1)
+        if cache.get("category"):
+            category=cache.get("category")
+        else:
+            cache.set("category", Product.objects.all().distinct('category').order_by('-category'), 60*1)
+
         
     else:
+        brands=[]
+        category=[]
         product=Product.objects.all()
-        brands=Product.objects.all().distinct('brand').order_by('-brand')
-        category=Product.objects.all().distinct('category').order_by('-category')
+        if cache.get("brands"):
+            category=cache.get("brands")
+        else:
+            cache.set("brands", Product.objects.all().distinct('brand').order_by('-brand'), 60*1)
+        if cache.get("category"):
+            category=cache.get("category")
+        else:
+            cache.set("category", Product.objects.all().distinct('category').order_by('-category'), 60*1)
 
-        print(brands)
-        
-        category=Product.objects.all().distinct('category').order_by('-category')
+
 
 
     if request.GET.get('min_price') and request.GET.get('max_price'):
@@ -93,7 +110,10 @@ def index(request):
 
     if request.GET.get('category'):
         cat=request.GET.get('category')
-        product=Product.objects.filter(category=cat)
+        if cache.get("product"):
+            product=cache.get("product")
+        else:
+            cache.set("product", Product.objects.filter(category=cat), 60*1)
         
     context={'results':product,'search':search,'brands':brands,'category':category}
     return render(request,"index.html",context)    
